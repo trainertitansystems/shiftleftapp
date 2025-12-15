@@ -5,4 +5,5 @@ prometheus-client
 streamlit
 pytest
 httpx
+os
 
