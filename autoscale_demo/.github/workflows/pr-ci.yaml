@@ -1,17 +1,7 @@
-name: PR Quality Gates
-
-on:
-  pull_request:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  pull-requests: read
-  security-events: write
-
 jobs:
-  quality-gates:
+  test-and-sonar:
     runs-on: ubuntu-latest
+    environment: shiftleft   # 👈 THIS IS THE KEY LINE
 
     steps:
       - name: Checkout code
@@ -23,23 +13,15 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        working-directory: autoscale_demo
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r autoscale_demo/requirements.txt
 
       - name: Run unit & integration tests
-        working-directory: autoscale_demo
-        env:
-          PYTHONPATH: .
-        run: |
-          pytest tests \
-            --ignore=tests/smoke
+        run: pytest autoscale_demo/tests --ignore=autoscale_demo/tests/smoke
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           projectBaseDir: autoscale_demo
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
