@@ -7,44 +7,62 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  security-events: write   # Required for CodeQL
 
 jobs:
-  test-and-sonar:
+  quality-gates:
     runs-on: ubuntu-latest
-    environment: shiftleft   # ✅ REQUIRED
 
     steps:
-      - name: Checkout code
+      # ----------------------------
+      # Checkout
+      # ----------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ----------------------------
+      # Python setup
+      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      # ----------------------------
+      # Install dependencies
+      # ----------------------------
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
 
+      # ----------------------------
+      # Unit + Integration Tests
+      # ----------------------------
       - name: Run unit & integration tests
         run: |
           pytest autoscale_demo/tests \
-            --ignore=autoscale_demo/tests/smoke
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml
 
-      # 🔎 DEBUG (temporary)
-      - name: Debug Sonar token presence
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          if [ -z "$SONAR_TOKEN" ]; then
-            echo "❌ SONAR_TOKEN is EMPTY"
-            exit 1
-          else
-            echo "✅ SONAR_TOKEN is present"
-          fi
+      # ----------------------------
+      # CodeQL (Python)
+      # ----------------------------
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
 
-      # 🎯 SonarCloud
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      # ----------------------------
+      # SonarCloud
+      # ----------------------------
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         with:
