@@ -1,0 +1,8 @@
+resources:
+  - ../../base
+
+images:
+  - name: autoscale-demo
+    newName: asia-south1-docker.pkg.dev/serviceproject-b-402108/autoscale-repo/autoscale-demo
+    newTag: v1
+

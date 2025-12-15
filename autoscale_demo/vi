@@ -1,0 +1,4 @@
+[pytest]
+testpaths = autoscale_demo/tests
+addopts = -ra
+
