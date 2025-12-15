@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+prometheus-client
+streamlit
+pytest
+httpx
+os
+
