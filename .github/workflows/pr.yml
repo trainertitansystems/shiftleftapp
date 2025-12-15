@@ -2,14 +2,15 @@ name: PR Quality Gates
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
   pull-requests: read
+  security-events: write
 
 jobs:
-  test-and-sonar:
+  quality-gates:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,15 +27,20 @@ jobs:
 
       - name: Install dependencies
         run: |
-          ls -la
-          pip install -r requirements.txt
+          pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
 
       - name: Run unit & integration tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest autoscale_demo/tests \
-            --ignore=autoscale_demo/tests/smoke
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo \
+            --cov-report=xml
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
