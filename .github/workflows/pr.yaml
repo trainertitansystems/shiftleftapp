@@ -39,7 +39,7 @@ jobs:
       # SonarCloud (ONLY PLACE)
       # ----------------------------
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v3
+        uses: SonarSource/sonarcloud-github-action@b9f4b91c6bb0b62bb5b9c6b64cf68545e03d83c2
         with:
           projectBaseDir: autoscale_demo
         env:
