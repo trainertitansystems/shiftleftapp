@@ -28,7 +28,7 @@ jobs:
           pip install -r autoscale_demo/requirements.txt
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v3
+        uses: SonarSource/sonarcloud-github-action@d1f06f3a2a8f1bb45a1a6a5a78e87f3b7f6b8c1e
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
