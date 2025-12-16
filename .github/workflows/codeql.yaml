@@ -12,16 +12,17 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL Analyze
+    name: Analyze (CodeQL)
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        language: [ "python" ]
+        language: [ python ]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
