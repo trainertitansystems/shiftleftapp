@@ -2,43 +2,46 @@ name: PR Quality Gates
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
 
 permissions:
   contents: read
-  pull-requests: read
-  security-events: write
+  pull-requests: write
 
 jobs:
-  pr-quality:
+  quality-gates:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies
         run: |
           pip install -r autoscale_demo/requirements.txt
-          pip install pytest httpx
-
-      - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/autoscale_demo" >> $GITHUB_ENV
+          pip install pytest pytest-cov
 
       - name: Run unit & integration tests
         run: |
           pytest autoscale_demo/tests \
-            --ignore=autoscale_demo/tests/smoke
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml
 
+      # ----------------------------
+      # SonarCloud (ONLY PLACE)
+      # ----------------------------
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           projectBaseDir: autoscale_demo
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
