@@ -23,36 +23,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # REQUIRED for Sonar PR analysis
+          fetch-depth: 0
 
       # ----------------------------
-      # Python setup
+      # Python
       # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-
-      # ----------------------------
-      # Dependencies
-      # ----------------------------
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
       # ----------------------------
-      # Smoke tests (fast feedback)
+      # Smoke tests
       # ----------------------------
       - name: Run smoke tests
         run: |
           pytest autoscale_demo/tests/smoke
 
       # ----------------------------
-      # Unit + Integration tests with coverage
+      # Unit + Integration + Coverage
       # ----------------------------
       - name: Run unit & integration tests with coverage
         run: |
@@ -62,17 +57,10 @@ jobs:
             --cov-report=xml
 
       # ----------------------------
-      # Debug: confirm coverage exists
-      # ----------------------------
-      - name: Verify coverage.xml
-        run: |
-          ls -la
-          test -f coverage.xml
-
-      # ----------------------------
-      # SonarCloud (PR analysis)
+      # SonarCloud (ONLY if secrets are available)
       # ----------------------------
       - name: SonarCloud Scan
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
