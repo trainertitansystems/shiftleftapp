@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout PR code (required for Sonar PR analysis)
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
@@ -23,19 +24,23 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install deps
-        run: pip install -r autoscale_demo/requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
 
-      - name: Run tests with coverage
+      - name: Run unit + integration tests with coverage
         env:
           PYTHONPATH: autoscale_demo
         run: |
-          pip install pytest pytest-cov
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
             --cov-report=xml
 
+      # ----------------------------
+      # SonarCloud (PR analysis)
+      # ----------------------------
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         with:
