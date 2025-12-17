@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  pr-ci:
+  sonar:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,37 +23,27 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install dependencies
-        run: |
-          pip install -r autoscale_demo/requirements.txt
-          pip install pytest pytest-cov
+      - name: Install deps
+        run: pip install -r autoscale_demo/requirements.txt
 
       - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
         run: |
+          pip install pytest pytest-cov
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
             --cov-report=xml
 
-      # 🔍 Debug – this WILL pass now
-      - name: Debug Sonar token
-        run: |
-          if [ -z "$SONAR_TOKEN" ]; then
-            echo "SONAR_TOKEN is EMPTY"
-            exit 1
-          else
-            echo "SONAR_TOKEN is present"
-          fi
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      # ✅ SonarCloud PR analysis (WORKS)
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
+          args: >
+            -Dsonar.projectKey=trainertitansystems_shiftleftapp
+            -Dsonar.organization=trainertitansystems
+            -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
