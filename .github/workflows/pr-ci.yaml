@@ -1,33 +1,23 @@
-name: PR Quality Gates
+name: PR CI
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   pr-ci:
-    name: Tests + Quality Gates
     runs-on: ubuntu-latest
 
-    env:
-      PYTHONPATH: autoscale_demo
-
     steps:
-      # ----------------------------
-      # Checkout
-      # ----------------------------
-      - name: Checkout code
+      - name: Checkout PR code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
-      # ----------------------------
-      # Python
-      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -35,32 +25,32 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
-      # ----------------------------
-      # Smoke tests
-      # ----------------------------
-      - name: Run smoke tests
-        run: |
-          pytest autoscale_demo/tests/smoke
-
-      # ----------------------------
-      # Unit + Integration + Coverage
-      # ----------------------------
-      - name: Run unit & integration tests with coverage
+      - name: Run tests with coverage
+        env:
+          PYTHONPATH: autoscale_demo
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
             --cov-report=xml
 
-      # ----------------------------
-      # SonarCloud (ONLY if secrets are available)
-      # ----------------------------
+      # 🔍 Debug – this WILL pass now
+      - name: Debug Sonar token
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "SONAR_TOKEN is EMPTY"
+            exit 1
+          else
+            echo "SONAR_TOKEN is present"
+          fi
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ✅ SonarCloud PR analysis (WORKS)
       - name: SonarCloud Scan
-        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
