@@ -42,7 +42,7 @@ jobs:
       # SonarCloud (PR analysis)
       # ----------------------------
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v3
+        uses: SonarSource/sonarcloud-github-action@9b7f33b6a4bbcb0f8dce4b1e60cfe1d1a6e9d8a7
         with:
           projectBaseDir: autoscale_demo
           args: >
