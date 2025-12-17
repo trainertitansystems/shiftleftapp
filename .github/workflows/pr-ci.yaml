@@ -1,4 +1,4 @@
-name: PR Fast Checks
+name: PR Quality Gates
 
 on:
   pull_request:
@@ -6,25 +6,76 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
-  fast-checks:
+  pr-ci:
+    name: Tests + Quality Gates
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    env:
+      PYTHONPATH: autoscale_demo
 
+    steps:
+      # ----------------------------
+      # Checkout
+      # ----------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # REQUIRED for Sonar PR analysis
+
+      # ----------------------------
+      # Python setup
+      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      # ----------------------------
+      # Dependencies
+      # ----------------------------
       - name: Install dependencies
         run: |
           pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
 
+      # ----------------------------
+      # Smoke tests (fast feedback)
+      # ----------------------------
       - name: Run smoke tests
         run: |
           pytest autoscale_demo/tests/smoke
+
+      # ----------------------------
+      # Unit + Integration tests with coverage
+      # ----------------------------
+      - name: Run unit & integration tests with coverage
+        run: |
+          pytest autoscale_demo/tests \
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml
+
+      # ----------------------------
+      # Debug: confirm coverage exists
+      # ----------------------------
+      - name: Verify coverage.xml
+        run: |
+          ls -la
+          test -f coverage.xml
+
+      # ----------------------------
+      # SonarCloud (PR analysis)
+      # ----------------------------
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          projectBaseDir: autoscale_demo
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
