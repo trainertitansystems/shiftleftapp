@@ -6,35 +6,56 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
+  checks: write
 
 jobs:
-  test-and-sonar:
+  quality-gates:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------
+      # Checkout
+      # ----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # ----------------------------
+      # Python setup
+      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-
+      # ----------------------------
+      # Install dependencies
+      # ----------------------------
       - name: Install dependencies
         run: |
-          ls -la
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
 
-      - name: Run unit & integration tests
+      # ----------------------------
+      # Run tests with coverage (⭐ ADD HERE)
+      # ----------------------------
+      - name: Run unit & integration tests with coverage
         run: |
           pytest autoscale_demo/tests \
-            --ignore=autoscale_demo/tests/smoke
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml
 
+      # ----------------------------
+      # SonarCloud Scan (uses coverage.xml)
+      # ----------------------------
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          projectBaseDir: autoscale_demo
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
