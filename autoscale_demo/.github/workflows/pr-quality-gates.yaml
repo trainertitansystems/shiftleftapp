@@ -1,0 +1,19 @@
+name: PR Quality Gates
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SonarCloud Quality Gate
+        uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
