@@ -15,7 +15,7 @@ jobs:
 
     steps:
       # ----------------------------------
-      # 1. Checkout BASE branch (safe)
+      # Safe checkout (base first)
       # ----------------------------------
       - name: Checkout base branch
         uses: actions/checkout@v4
@@ -23,17 +23,11 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
 
-      # ----------------------------------
-      # 2. Set up Python
-      # ----------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # ----------------------------------
-      # 3. Install dependencies
-      # ----------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -41,16 +35,13 @@ jobs:
           pip install pytest pytest-cov
 
       # ----------------------------------
-      # 4. Fetch PR code (read-only)
+      # Fetch PR code (read-only)
       # ----------------------------------
       - name: Fetch PR code safely
         run: |
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
           git checkout pr
 
-      # ----------------------------------
-      # 5. Run tests with coverage
-      # ----------------------------------
       - name: Run tests with coverage
         run: |
           pytest autoscale_demo/tests \
@@ -59,7 +50,7 @@ jobs:
             --cov-report=xml
 
       # ----------------------------------
-      # 6. SonarCloud analysis + Quality Gate
+      # SonarCloud + Quality Gate
       # ----------------------------------
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
