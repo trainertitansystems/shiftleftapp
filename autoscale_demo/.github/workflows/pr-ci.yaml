@@ -48,17 +48,17 @@ jobs:
 
       # ----------------------------
       # SonarCloud (PR analysis)
-      # - Runs ONLY for same-repo PRs
-      # - Runs ONLY if SONAR_TOKEN exists
-      # - Cleanly skipped for forked PRs
+      # Runs ONLY when token exists
       # ----------------------------
       - name: SonarCloud Scan
-        if: >
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          secrets.SONAR_TOKEN != ''
+        if: secrets.SONAR_TOKEN != ''
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
+          args: >
+            -Dsonar.projectKey=trainertitansystems_shiftleftapp
+            -Dsonar.organization=trainertitansystems
+            -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
