@@ -2,15 +2,24 @@ name: PR Quality Gates
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------------
+      # SonarCloud Quality Gate
+      # - Pinned to full commit SHA
+      # - Waits for PR analysis
+      # - Skips forked PRs safely
+      # ----------------------------------
       - name: SonarCloud Quality Gate
-        uses: SonarSource/sonarcloud-github-action@v3
+        if: >
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          secrets.SONAR_TOKEN != ''
+        uses: SonarSource/sonarcloud-github-action@6c0f3bba7a8d6f7f59d58a0b0a4fda3e2d6b9e1f
         with:
           args: >
             -Dsonar.qualitygate.wait=true
