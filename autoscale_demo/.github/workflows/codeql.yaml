@@ -2,21 +2,31 @@ name: CodeQL
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
+  push:
+    branches: [ main ]
 
 permissions:
-  security-events: write
   contents: read
+  security-events: write
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ python ]
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: github/codeql-action/init@v3
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          languages: python
+          languages: ${{ matrix.language }}
 
-      - uses: github/codeql-action/analyze@v3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
 
