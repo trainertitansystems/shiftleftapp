@@ -4,9 +4,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
-
 jobs:
   pr-ci:
     runs-on: ubuntu-latest
@@ -22,6 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
@@ -36,9 +34,11 @@ jobs:
 
       # ----------------------------
       # SonarCloud (PR analysis)
+      # Runs only for same-repo PRs
       # ----------------------------
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@9b7f33b6a4bbcb0f8dce4b1e60cfe1d1a6e9d8a7
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
           args: >
@@ -47,4 +47,3 @@ jobs:
             -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
