@@ -25,7 +25,7 @@ jobs:
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
-      - name: Run unit + integration tests with coverage
+      - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
         run: |
@@ -34,19 +34,15 @@ jobs:
             --cov=autoscale_demo/app \
             --cov-report=xml
 
-      # ----------------------------
-      # SonarCloud
-      # Runs ONLY if token exists
-      # ----------------------------
+      # ----------------------------------
+      # SonarCloud — BEFORE MERGE
+      # Only same-repo PRs (secrets exist)
+      # ----------------------------------
       - name: SonarCloud Scan
-        if: secrets.SONAR_TOKEN != ''
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
-          args: >
-            -Dsonar.projectKey=trainertitansystems_shiftleftapp
-            -Dsonar.organization=trainertitansystems
-            -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
