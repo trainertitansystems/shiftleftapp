@@ -5,15 +5,14 @@ on:
     branches: [ "main" ]
 
 jobs:
-  quality-gate:
+  quality-gates:
     runs-on: ubuntu-latest
 
     steps:
       # ----------------------------------
       # SonarCloud Quality Gate
-      # - Pinned to full commit SHA
-      # - Waits for PR analysis
-      # - Skips forked PRs safely
+      # - waits for existing PR analysis
+      # - skips forked PRs
       # ----------------------------------
       - name: SonarCloud Quality Gate
         if: >
