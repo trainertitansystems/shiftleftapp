@@ -2,29 +2,41 @@ name: PR CI
 
 on:
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [opened, synchronize, reopened]
 
 jobs:
   pr-ci:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------
+      # Checkout PR code
+      # ----------------------------
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # ----------------------------
+      # Python setup
+      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      # ----------------------------
+      # Install dependencies
+      # ----------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
+      # ----------------------------
+      # Run tests with coverage
+      # ----------------------------
       - name: Run unit + integration tests with coverage
         env:
           PYTHONPATH: autoscale_demo
@@ -36,10 +48,14 @@ jobs:
 
       # ----------------------------
       # SonarCloud (PR analysis)
-      # Same-repo PRs only
+      # - Runs ONLY for same-repo PRs
+      # - Runs ONLY if SONAR_TOKEN exists
+      # - Cleanly skipped for forked PRs
       # ----------------------------
       - name: SonarCloud Scan
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: >
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          secrets.SONAR_TOKEN != ''
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
