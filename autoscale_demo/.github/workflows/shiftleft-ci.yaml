@@ -1,4 +1,4 @@
-name: Shift-Left CI (PR-safe Sonar + CodeQL)
+name: Shift-Left CI (Tests • Coverage • Sonar • CodeQL)
 
 on:
   push:
@@ -17,37 +17,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ----------------------------------
-      # Safe checkout (base first)
-      # ----------------------------------
+      # -------------------------------------------------
+      # Safe checkout (base branch first)
+      # -------------------------------------------------
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.ref || github.ref }}
           fetch-depth: 0
 
-      - name: Fetch PR code safely
+      # -------------------------------------------------
+      # Fetch PR code safely (fork-safe, no secrets)
+      # -------------------------------------------------
+      - name: Fetch PR code
         if: github.event_name == 'pull_request_target'
         run: |
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
           git checkout pr
 
-      # ----------------------------------
+      # -------------------------------------------------
       # Python setup
-      # ----------------------------------
-      - uses: actions/setup-python@v5
+      # -------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      # -------------------------------------------------
+      # Install dependencies
+      # -------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
-      # ----------------------------------
-      # Tests + Coverage
-      # ----------------------------------
+      # -------------------------------------------------
+      # Tests + Coverage (PR and main)
+      # -------------------------------------------------
       - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
@@ -57,27 +64,13 @@ jobs:
             --cov=autoscale_demo/app \
             --cov-report=xml:autoscale_demo/coverage.xml
 
-      # ----------------------------------
-      # SonarCloud – PR (NO dynamic args)
-      # ----------------------------------
-      - name: SonarCloud Scan (PR)
-        if: github.event_name == 'pull_request_target'
-        uses: SonarSource/sonarcloud-github-action@v3
-        with:
-          projectBaseDir: autoscale_demo
-          args: >
-            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
-            -Dsonar.pullrequest.branch=${{ github.event.pull_request.head.ref }}
-            -Dsonar.pullrequest.base=${{ github.event.pull_request.base.ref }}
-            -Dsonar.qualitygate.wait=true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      # ----------------------------------
-      # SonarCloud – main
-      # ----------------------------------
-      - name: SonarCloud Scan (main)
-        if: github.event_name == 'push'
+      # -------------------------------------------------
+      # SonarCloud Scan
+      # IMPORTANT:
+      # - No PR metadata passed via args
+      # - Sonar auto-detects PR context safely
+      # -------------------------------------------------
+      - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
@@ -86,9 +79,9 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # ----------------------------------
-      # CodeQL
-      # ----------------------------------
+      # -------------------------------------------------
+      # CodeQL (PR + main)
+      # -------------------------------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -96,4 +89,14 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+
+      # -------------------------------------------------
+      # Summary
+      # -------------------------------------------------
+      - name: CI Summary
+        run: |
+          echo "## ✅ Shift-Left CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests & Coverage: completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Sonar Quality Gate: enforced (PR-adjusted)" >> $GITHUB_STEP_SUMMARY
+          echo "- CodeQL: completed" >> $GITHUB_STEP_SUMMARY
 
