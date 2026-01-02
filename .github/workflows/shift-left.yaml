@@ -23,6 +23,7 @@ jobs:
       # ----------------------------------
       - name: Checkout base branch safely
         uses: actions/checkout@v4
+        # Make sure that no untrusted code is executed from a fork
         with:
           ref: ${{ github.event.pull_request.base.ref || github.ref }}
           fetch-depth: 0
