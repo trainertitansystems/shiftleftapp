@@ -1,4 +1,4 @@
-name: Shift-Left CI (Tests • Coverage • Sonar • CodeQL)
+name: Shift-Left CI (Safe Sonar Execution)
 
 on:
   push:
@@ -17,44 +17,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------------------------
-      # Safe checkout (base branch first)
-      # -------------------------------------------------
+      # ----------------------------------
+      # Checkout base branch
+      # ----------------------------------
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.ref || github.ref }}
           fetch-depth: 0
 
-      # -------------------------------------------------
-      # Fetch PR code safely (fork-safe, no secrets)
-      # -------------------------------------------------
+      # ----------------------------------
+      # Fetch PR code safely
+      # ----------------------------------
       - name: Fetch PR code
         if: github.event_name == 'pull_request_target'
         run: |
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
           git checkout pr
 
-      # -------------------------------------------------
+      # ----------------------------------
       # Python setup
-      # -------------------------------------------------
+      # ----------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # -------------------------------------------------
+      # ----------------------------------
       # Install dependencies
-      # -------------------------------------------------
+      # ----------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
-      # -------------------------------------------------
-      # Tests + Coverage (PR and main)
-      # -------------------------------------------------
+      # ----------------------------------
+      # Tests + Coverage
+      # ----------------------------------
       - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
@@ -64,13 +64,23 @@ jobs:
             --cov=autoscale_demo/app \
             --cov-report=xml:autoscale_demo/coverage.xml
 
-      # -------------------------------------------------
-      # SonarCloud Scan
-      # IMPORTANT:
-      # - No PR metadata passed via args
-      # - Sonar auto-detects PR context safely
-      # -------------------------------------------------
+      # ----------------------------------
+      # Guard: check if Sonar token exists
+      # ----------------------------------
+      - name: Check Sonar token
+        id: sonar_token
+        run: |
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "available=false" >> $GITHUB_OUTPUT
+          else
+            echo "available=true" >> $GITHUB_OUTPUT
+          fi
+
+      # ----------------------------------
+      # SonarCloud Scan (runs ONLY if token exists)
+      # ----------------------------------
       - name: SonarCloud Scan
+        if: steps.sonar_token.outputs.available == 'true'
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
@@ -79,9 +89,9 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # -------------------------------------------------
-      # CodeQL (PR + main)
-      # -------------------------------------------------
+      # ----------------------------------
+      # CodeQL
+      # ----------------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -90,13 +100,13 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-      # -------------------------------------------------
+      # ----------------------------------
       # Summary
-      # -------------------------------------------------
+      # ----------------------------------
       - name: CI Summary
         run: |
           echo "## ✅ Shift-Left CI Summary" >> $GITHUB_STEP_SUMMARY
           echo "- Tests & Coverage: completed" >> $GITHUB_STEP_SUMMARY
-          echo "- Sonar Quality Gate: enforced (PR-adjusted)" >> $GITHUB_STEP_SUMMARY
+          echo "- Sonar: ran only if token was available" >> $GITHUB_STEP_SUMMARY
           echo "- CodeQL: completed" >> $GITHUB_STEP_SUMMARY
 
