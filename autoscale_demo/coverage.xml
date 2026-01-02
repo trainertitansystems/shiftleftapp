@@ -1,0 +1,5 @@
+pytest autoscale_demo/tests \
+  --ignore=autoscale_demo/tests/smoke \
+  --cov=autoscale_demo/app \
+  --cov-report=xml:autoscale_demo/coverage.xml
+

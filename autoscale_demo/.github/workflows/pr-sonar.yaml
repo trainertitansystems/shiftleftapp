@@ -1,16 +1,27 @@
-name: PR CI
+name: PR Sonar Quality Gate
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
 jobs:
-  pr-ci:
+  sonar:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR code
+      # ----------------------------------
+      # Safe checkout (base first)
+      # ----------------------------------
+      - name: Checkout base branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,21 +34,25 @@ jobs:
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov
 
-      - name: Run unit + integration tests with coverage
-        env:
-          PYTHONPATH: autoscale_demo
+      # ----------------------------------
+      # Fetch PR code (read-only)
+      # ----------------------------------
+      - name: Fetch PR code safely
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
+          git checkout pr
+
+      - name: Run tests with coverage
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
             --cov-report=xml
 
-      # ----------------------------
-      # SonarCloud (PR analysis)
-      # Runs only for same-repo PRs
-      # ----------------------------
+      # ----------------------------------
+      # SonarCloud + Quality Gate
+      # ----------------------------------
       - name: SonarCloud Scan
-        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
@@ -45,6 +60,7 @@ jobs:
             -Dsonar.projectKey=trainertitansystems_shiftleftapp
             -Dsonar.organization=trainertitansystems
             -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.qualitygate.wait=true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
