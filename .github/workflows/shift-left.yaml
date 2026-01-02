@@ -1,0 +1,116 @@
+name: Shift-Left CI (Tests • Security • Sonar • Quality Gate)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+  security-events: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ----------------------------------
+      # Safe checkout (BASE branch first)
+      # ----------------------------------
+      - name: Checkout base branch safely
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || github.ref }}
+          fetch-depth: 0
+
+      # ----------------------------------
+      # Fetch PR code (read-only, no secrets)
+      # ----------------------------------
+      - name: Fetch PR code safely
+        if: github.event_name == 'pull_request_target'
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
+          git checkout pr
+
+      # ----------------------------------
+      # Python setup
+      # ----------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # ----------------------------------
+      # Install dependencies
+      # ----------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov bandit pip-audit
+
+      # ----------------------------------
+      # Unit + Integration tests with coverage
+      # ----------------------------------
+      - name: Run unit & integration tests
+        env:
+          PYTHONPATH: autoscale_demo
+        run: |
+          pytest autoscale_demo/tests \
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml
+
+      # ----------------------------------
+      # Dependency security scan
+      # ----------------------------------
+      - name: Dependency scan (pip-audit)
+        run: pip-audit -r autoscale_demo/requirements.txt
+
+      # ----------------------------------
+      # Static code security scan
+      # ----------------------------------
+      - name: Static security scan (Bandit)
+        run: bandit -r autoscale_demo/app -ll
+
+      # ----------------------------------
+      # SonarCloud Scan + Quality Gate
+      # ----------------------------------
+      - name: SonarCloud Scan (Quality Gate enforced)
+        uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          projectBaseDir: autoscale_demo
+          args: >
+            -Dsonar.projectKey=trainertitansystems_shiftleftapp
+            -Dsonar.organization=trainertitansystems
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ----------------------------------
+      # CodeQL Security Analysis
+      # ----------------------------------
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      # ----------------------------------
+      # Scan Summary (timestamps)
+      # ----------------------------------
+      - name: Publish scan summary
+        run: |
+          echo "## ✅ Shift-Left CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 Unit & Integration tests: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 Dependency & SAST scan: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 SonarCloud Quality Gate: enforced" >> $GITHUB_STEP_SUMMARY
+          echo "- 🛡️ CodeQL scan: completed" >> $GITHUB_STEP_SUMMARY
+
