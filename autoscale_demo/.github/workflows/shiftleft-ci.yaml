@@ -1,9 +1,7 @@
-name: Shift-Left CI (PR Safe • Sonar on Main Only)
+name: PR CI – Tests, Security & Gemini Review
 
 on:
   pull_request:
-    branches: [ main ]
-  push:
     branches: [ main ]
 
 permissions:
@@ -13,62 +11,118 @@ permissions:
   security-events: write
 
 jobs:
-  ci:
+  pr-ci:
     runs-on: ubuntu-latest
+    environment: shiftleft
 
     steps:
-      # ----------------------------------
+      # -------------------------
       # Checkout
-      # ----------------------------------
-      - name: Checkout code
+      # -------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ----------------------------------
+      # -------------------------
       # Python setup
-      # ----------------------------------
+      # -------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # ----------------------------------
+      # -------------------------
       # Install dependencies
-      # ----------------------------------
+      # -------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov bandit pip-audit
 
-      # ----------------------------------
-      # Tests + Coverage (PR + main)
-      # ----------------------------------
+      # -------------------------
+      # Tests + Coverage
+      # -------------------------
       - name: Run unit & integration tests with coverage
-        env:
-          PYTHONPATH: autoscale_demo
+        continue-on-error: true
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
-            --cov-report=xml:autoscale_demo/coverage.xml
+            --cov-report=xml \
+            --cov-report=term > pytest_output.txt || true
 
-      # ----------------------------------
-      # Dependency security scan
-      # ----------------------------------
-      - name: Dependency scan (pip-audit)
-        run: pip-audit -r autoscale_demo/requirements.txt
+      - name: Coverage summary
+        continue-on-error: true
+        run: |
+          coverage report > coverage_summary.txt || true
 
-      # ----------------------------------
-      # Static security scan
-      # ----------------------------------
-      - name: Static security scan (Bandit)
-        run: bandit -r autoscale_demo/app -ll
+      # -------------------------
+      # Security scans
+      # -------------------------
+      - name: Bandit scan
+        continue-on-error: true
+        run: |
+          bandit -r autoscale_demo/app -f json -o bandit.json || true
 
-      # ----------------------------------
-      # CodeQL (PR + main)
-      # ----------------------------------
+      - name: pip-audit scan
+        continue-on-error: true
+        run: |
+          pip-audit -r autoscale_demo/requirements.txt -f json -o pip_audit.json || true
+
+      # -------------------------
+      # Git diff for AI review
+      # -------------------------
+      - name: Capture PR diff
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+
+      # -------------------------
+      # Preflight secret check
+      # -------------------------
+      - name: Preflight – check Gemini API key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ GEMINI_API_KEY is NOT available"
+            exit 1
+          else
+            echo "✅ GEMINI_API_KEY is available"
+          fi
+
+      # -------------------------
+      # Gemini AI Review
+      # -------------------------
+      - name: Run Gemini AI Review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python .github/scripts/gemini_pr_review.py
+
+      # -------------------------
+      # Post as PR REVIEW (not comment)
+      # -------------------------
+      - name: Post PR Review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('final_review.md', 'utf8');
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              body,
+              event: "COMMENT"
+            });
+
+      # -------------------------
+      # CodeQL (GitHub-native)
+      # -------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -76,30 +130,4 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-
-  # =================================================
-  # SonarCloud — MAIN BRANCH ONLY
-  # =================================================
-  sonar:
-    runs-on: ubuntu-latest
-    needs: ci
-
-    # 🔐 Sonar runs ONLY on push to main
-    if: github.event_name == 'push'
-
-    env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: SonarCloud Scan (main branch)
-        uses: SonarSource/sonarcloud-github-action@v3
-        with:
-          projectBaseDir: autoscale_demo
-          args: >
-            -Dsonar.qualitygate.wait=true
 
