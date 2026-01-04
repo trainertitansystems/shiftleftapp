@@ -1,5 +1,4 @@
 name: Shift-Left CI (Tests • Coverage • Security • CodeQL)
-#test
 on:
   # 1️⃣ Run immediately when code is pushed to ANY temp branch
   push:
