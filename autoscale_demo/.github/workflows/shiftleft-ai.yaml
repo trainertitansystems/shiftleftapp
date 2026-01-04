@@ -1,13 +1,8 @@
-name: Shift-Left AI (Tests • Security • CodeQL • Gemini)
+name: Unified CI (Shift-Left + Sonar Governance)
 
 on:
   push:
-    branches-ignore:
-      - main
-      - master
-      - dev
-      - staging
-      - prod
+    branches: ['**']
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -18,39 +13,38 @@ permissions:
   security-events: write
 
 jobs:
+  # =========================================================
+  # SHIFT-LEFT JOB (Temp branches + PRs)
+  # =========================================================
   shiftleft:
     runs-on: ubuntu-latest
-    environment: shiftleft   # for GEMINI_API_KEY only
+
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' &&
+       github.ref_name != 'main' &&
+       github.ref_name != 'master' &&
+       github.ref_name != 'dev' &&
+       github.ref_name != 'staging' &&
+       github.ref_name != 'prod')
 
     steps:
-      # ----------------------------
-      # Checkout PR / branch code
-      # ----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ----------------------------
-      # Python setup
-      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # ----------------------------
-      # Install dependencies
-      # ----------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
           pip install pytest pytest-cov bandit pip-audit
 
-      # ----------------------------
-      # Unit + Integration tests
-      # ----------------------------
       - name: Run unit & integration tests with coverage
         env:
           PYTHONPATH: autoscale_demo
@@ -60,21 +54,12 @@ jobs:
             --cov=autoscale_demo/app \
             --cov-report=xml:coverage.xml
 
-      # ----------------------------
-      # Dependency security scan
-      # ----------------------------
       - name: Dependency scan (pip-audit)
         run: pip-audit -r autoscale_demo/requirements.txt > pip-audit.txt || true
 
-      # ----------------------------
-      # Static code security scan
-      # ----------------------------
       - name: Static security scan (Bandit)
         run: bandit -r autoscale_demo/app -ll -f txt -o bandit.txt || true
 
-      # ----------------------------
-      # CodeQL (open-source, PR-safe)
-      # ----------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -83,29 +68,77 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-      # ----------------------------
-      # Gemini AI – diff-based review
-      # ----------------------------
+      # Gemini runs ONLY for PRs
       - name: Gemini AI PR Review
         if: github.event_name == 'pull_request'
+        environment: shiftleft
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python autoscale_demo/scripts/ai_pr_review.py
 
-      # ----------------------------
-      # PR / Run summary table
-      # ----------------------------
       - name: Publish Shift-Left Summary
         run: |
           echo "## ✅ Shift-Left CI Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status | Details |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Unit & Integration Tests | ✅ | pytest executed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Code Coverage | 📊 | coverage.xml generated |" >> $GITHUB_STEP_SUMMARY
-          echo "| Dependency Scan | 🔒 | pip-audit completed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Static Scan | 🔐 | bandit completed |" >> $GITHUB_STEP_SUMMARY
-          echo "| CodeQL | 🛡️ | GitHub CodeQL |" >> $GITHUB_STEP_SUMMARY
-          echo "| AI Review | 🤖 | Gemini diff-based review |" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit & Integration Tests | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Coverage | 📊 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Scan | 🔒 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Scan | 🔐 |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL | 🛡️ |" >> $GITHUB_STEP_SUMMARY
+          echo "| AI Review | 🤖 | PR only |" >> $GITHUB_STEP_SUMMARY
+
+  # =========================================================
+  # SONAR GOVERNANCE JOB (Protected branches ONLY)
+  # =========================================================
+  sonar:
+    runs-on: ubuntu-latest
+    environment: shiftleft
+
+    if: >
+      github.event_name == 'push' &&
+      (github.ref_name == 'main' ||
+       github.ref_name == 'master' ||
+       github.ref_name == 'dev' ||
+       github.ref_name == 'staging' ||
+       github.ref_name == 'prod')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install -r autoscale_demo/requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests with coverage
+        env:
+          PYTHONPATH: autoscale_demo
+        run: |
+          pytest autoscale_demo/tests \
+            --ignore=autoscale_demo/tests/smoke \
+            --cov=autoscale_demo/app \
+            --cov-report=xml:coverage.xml
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v3
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: autoscale_demo
+          args: >
+            -Dsonar.projectKey=trainertitansystems_shiftleftapp
+            -Dsonar.organization=trainertitansystems
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.qualitygate.wait=true
 
