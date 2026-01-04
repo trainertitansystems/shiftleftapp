@@ -1,8 +1,8 @@
-name: PR CI – Tests, Security & Gemini Review
+name: PR Security CI (Tests • SAST • DAST • CodeQL)
 
 on:
   pull_request:
-    branches: [ main ]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -13,116 +13,86 @@ permissions:
 jobs:
   pr-ci:
     runs-on: ubuntu-latest
-    environment: shiftleft
 
     steps:
-      # -------------------------
-      # Checkout
-      # -------------------------
-      - name: Checkout repository
+      # ----------------------------------
+      # Checkout PR branch code
+      # ----------------------------------
+      - name: Checkout PR code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # -------------------------
+      # ----------------------------------
       # Python setup
-      # -------------------------
+      # ----------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # -------------------------
+      # ----------------------------------
       # Install dependencies
-      # -------------------------
+      # ----------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
-          pip install pytest pytest-cov bandit pip-audit
+          pip install pytest pytest-cov bandit pip-audit uvicorn
 
-      # -------------------------
-      # Tests + Coverage
-      # -------------------------
-      - name: Run unit & integration tests with coverage
-        continue-on-error: true
+      # ----------------------------------
+      # Unit + Integration Tests (REPORT)
+      # ----------------------------------
+      - name: Run tests with coverage
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
+            --cov-report=term-missing \
             --cov-report=xml \
-            --cov-report=term > pytest_output.txt || true
+            --junitxml=pytest-report.xml
 
-      - name: Coverage summary
-        continue-on-error: true
+      - name: Upload pytest report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      # ----------------------------------
+      # Dependency Scan (pip-audit)
+      # ----------------------------------
+      - name: Dependency vulnerability scan
         run: |
-          coverage report > coverage_summary.txt || true
+          pip-audit -r autoscale_demo/requirements.txt -f json -o pip-audit.json || true
 
-      # -------------------------
-      # Security scans
-      # -------------------------
-      - name: Bandit scan
-        continue-on-error: true
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+
+      # ----------------------------------
+      # Static Code Scan (Bandit)
+      # ----------------------------------
+      - name: Static security scan (Bandit)
         run: |
           bandit -r autoscale_demo/app -f json -o bandit.json || true
 
-      - name: pip-audit scan
-        continue-on-error: true
-        run: |
-          pip-audit -r autoscale_demo/requirements.txt -f json -o pip_audit.json || true
-
-      # -------------------------
-      # Git diff for AI review
-      # -------------------------
-      - name: Capture PR diff
-        run: |
-          git fetch origin ${{ github.base_ref }}
-          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
-
-      # -------------------------
-      # Preflight secret check
-      # -------------------------
-      - name: Preflight – check Gemini API key
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "❌ GEMINI_API_KEY is NOT available"
-            exit 1
-          else
-            echo "✅ GEMINI_API_KEY is available"
-          fi
-
-      # -------------------------
-      # Gemini AI Review
-      # -------------------------
-      - name: Run Gemini AI Review
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          python .github/scripts/gemini_pr_review.py
-
-      # -------------------------
-      # Post as PR REVIEW (not comment)
-      # -------------------------
-      - name: Post PR Review
-        uses: actions/github-script@v7
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('final_review.md', 'utf8');
+          name: bandit-report
+          path: bandit.json
 
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              body,
-              event: "COMMENT"
-            });
-
-      # -------------------------
-      # CodeQL (GitHub-native)
-      # -------------------------
+      # ----------------------------------
+      # CodeQL (Code Scanning)
+      # ----------------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -130,3 +100,48 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+
+      # ----------------------------------
+      # Start application (NO Docker)
+      # ----------------------------------
+      - name: Start FastAPI app
+        run: |
+          uvicorn autoscale_demo.app.main:app \
+            --host 0.0.0.0 \
+            --port 8000 &
+          sleep 10
+
+      # ----------------------------------
+      # DAST – OWASP ZAP Baseline
+      # ----------------------------------
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: http://localhost:8000
+          cmd_options: "-r zap-report.html"
+        continue-on-error: true
+
+      - name: Upload DAST report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-dast-report
+          path: zap-report.html
+
+      # ----------------------------------
+      # PR Summary (Human-readable)
+      # ----------------------------------
+      - name: Publish PR summary
+        run: |
+          echo "## 🔍 PR Security & Quality Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Area | Tool | Report |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 Tests | pytest | pytest-report.xml |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📊 Coverage | pytest-cov | coverage.xml |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔐 SAST | Bandit | bandit.json |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📦 Dependencies | pip-audit | pip-audit.json |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧠 Code Scan | CodeQL | GitHub Security |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌐 DAST | OWASP ZAP | zap-report.html |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_All checks executed on the PR (temporary) branch only. No Docker required for the app._" >> $GITHUB_STEP_SUMMARY
+
