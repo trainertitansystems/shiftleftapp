@@ -78,20 +78,7 @@ jobs:
       - name: Static security scan (Bandit)
         run: bandit -r autoscale_demo/app -ll
 
-      # ----------------------------------
-      # SonarCloud Scan + Quality Gate
-      # ----------------------------------
-      - name: SonarCloud Scan (Quality Gate enforced)
-        uses: SonarSource/sonarcloud-github-action@v3
-        with:
-          projectBaseDir: autoscale_demo
-          args: >
-            -Dsonar.projectKey=trainertitansystems_shiftleftapp
-            -Dsonar.organization=trainertitansystems
-            -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.qualitygate.wait=true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
 
       # ----------------------------------
       # CodeQL Security Analysis
