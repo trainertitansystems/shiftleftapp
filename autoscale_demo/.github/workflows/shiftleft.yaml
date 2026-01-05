@@ -1,4 +1,4 @@
-name: Shift-Left PR CI (Tests • Coverage • Security • Sonar)
+name: Shift-Left CI (Tests • Coverage • Security • CodeQL • Sonar)
 
 on:
   push:
@@ -14,7 +14,6 @@ permissions:
 jobs:
   shiftleft:
     runs-on: ubuntu-latest
-    environment: shiftleft   # enables SONAR_TOKEN when needed
 
     steps:
       # ----------------------------
@@ -61,9 +60,9 @@ jobs:
       - name: Parse coverage
         id: coverage
         run: |
-          COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' coverage.xml | head -1)
+          RATE=$(grep -oP 'line-rate="\K[0-9.]+' coverage.xml | head -1)
           PERCENT=$(python - <<EOF
-print(round(float("$COVERAGE") * 100, 2))
+print(round(float("$RATE") * 100, 2))
 EOF
 )
           echo "coverage=$PERCENT" >> $GITHUB_OUTPUT
@@ -92,7 +91,7 @@ EOF
         run: |
           bandit -r autoscale_demo/app -f json -o bandit.json || true
 
-      - name: Parse bandit
+      - name: Parse bandit results
         id: bandit
         run: |
           HIGH=$(jq '[.results[] | select(.issue_severity=="HIGH")] | length' bandit.json)
@@ -103,7 +102,7 @@ EOF
           echo "low=$LOW" >> $GITHUB_OUTPUT
 
       # ----------------------------
-      # CodeQL
+      # CodeQL (no Docker required)
       # ----------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -114,9 +113,10 @@ EOF
         uses: github/codeql-action/analyze@v3
 
       # ----------------------------
-      # SonarCloud (runs everywhere)
+      # SonarCloud (secrets scoped correctly)
       # ----------------------------
       - name: SonarCloud Scan
+        environment: shiftleft   # ✅ ONLY HERE
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
@@ -129,7 +129,7 @@ EOF
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       # ----------------------------
-      # PR Comment Summary (PR only)
+      # PR Summary Comment
       # ----------------------------
       - name: Publish PR summary
         if: github.event_name == 'pull_request'
@@ -146,9 +146,9 @@ EOF
 | 🔒 Dependency Vulnerabilities | Low: ${{ steps.deps.outputs.low }}, High: ${{ steps.deps.outputs.high }}, Critical: ${{ steps.deps.outputs.critical }} |
 | 🔐 Bandit Issues | Low: ${{ steps.bandit.outputs.low }}, Medium: ${{ steps.bandit.outputs.medium }}, High: ${{ steps.bandit.outputs.high }} |
 | 🛡️ CodeQL | Completed |
-| 📈 SonarQube Quality Gate | Evaluated |
+| 📈 SonarQube | Executed (Quality Gate in Sonar) |
 
-_This report is informational and does not block the PR._
+_This report runs on every push and PR._
 EOF
 
           gh pr comment ${{ github.event.pull_request.number }} --body-file summary.md
