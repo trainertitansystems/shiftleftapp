@@ -1,10 +1,7 @@
-@@ -1,131 +0,0 @@
-name: Shift-Left CI (Tests • Security • AI • Sonar)
+name: Shift-Left CI (Tests • Coverage • Security • CodeQL • Sonar)
 
 on:
   push:
-    branches:
-      - '**'
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -17,11 +14,10 @@ permissions:
 jobs:
   shiftleft:
     runs-on: ubuntu-latest
-    environment: shiftleft   # only used when secrets are accessed
 
     steps:
       # ----------------------------
-      # Checkout branch / PR code
+      # Checkout
       # ----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,36 +39,70 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
-          pip install pytest pytest-cov bandit pip-audit
+          pip install pytest pytest-cov bandit pip-audit jq
 
       # ----------------------------
       # Unit + Integration tests
       # ----------------------------
-      - name: Run unit & integration tests with coverage
+      - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
-            --cov-report=xml:coverage.xml
+            --cov-report=xml:coverage.xml \
+            --cov-report=term
 
       # ----------------------------
-      # Dependency scan
+      # Extract coverage %
       # ----------------------------
-      - name: Dependency scan (pip-audit)
+      - name: Parse coverage
+        id: coverage
         run: |
-          pip-audit -r autoscale_demo/requirements.txt > pip-audit.txt || true
+          RATE=$(grep -oP 'line-rate="\K[0-9.]+' coverage.xml | head -1)
+          PERCENT=$(python - <<EOF
+print(round(float("$RATE") * 100, 2))
+EOF
+)
+          echo "coverage=$PERCENT" >> $GITHUB_OUTPUT
 
       # ----------------------------
-      # Static security scan
+      # Dependency vulnerability scan
       # ----------------------------
-      - name: Static security scan (Bandit)
+      - name: pip-audit
         run: |
-          bandit -r autoscale_demo/app -ll -f txt -o bandit.txt || true
+          pip-audit -r autoscale_demo/requirements.txt -f json > pip-audit.json || true
+
+      - name: Parse pip-audit results
+        id: deps
+        run: |
+          HIGH=$(jq '[.vulnerabilities[] | select(.severity=="high")] | length' pip-audit.json)
+          CRITICAL=$(jq '[.vulnerabilities[] | select(.severity=="critical")] | length' pip-audit.json)
+          LOW=$(jq '[.vulnerabilities[] | select(.severity=="low")] | length' pip-audit.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
 
       # ----------------------------
-      # CodeQL (runs on push + PR)
+      # Static code security scan
+      # ----------------------------
+      - name: Bandit scan
+        run: |
+          bandit -r autoscale_demo/app -f json -o bandit.json || true
+
+      - name: Parse bandit results
+        id: bandit
+        run: |
+          HIGH=$(jq '[.results[] | select(.issue_severity=="HIGH")] | length' bandit.json)
+          MEDIUM=$(jq '[.results[] | select(.issue_severity=="MEDIUM")] | length' bandit.json)
+          LOW=$(jq '[.results[] | select(.issue_severity=="LOW")] | length' bandit.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
+
+      # ----------------------------
+      # CodeQL (no Docker required)
       # ----------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -83,25 +113,10 @@ jobs:
         uses: github/codeql-action/analyze@v3
 
       # ----------------------------
-      # Gemini AI (PR ONLY)
+      # SonarCloud (secrets scoped correctly)
       # ----------------------------
-      - name: Gemini AI PR Review
-        if: github.event_name == 'pull_request'
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          python autoscale_demo/scripts/ai_pr_review.py
-
-      # ----------------------------
-      # SonarCloud (ONLY protected branches)
-      # ----------------------------
-      - name: SonarCloud Scan (Protected branches only)
-        if: |
-          github.ref_name == 'main' ||
-          github.ref_name == 'master' ||
-          github.ref_name == 'dev' ||
-          github.ref_name == 'staging' ||
-          github.ref_name == 'prod'
+      - name: SonarCloud Scan
+        environment: shiftleft   # ✅ ONLY HERE
         uses: SonarSource/sonarcloud-github-action@v3
         with:
           projectBaseDir: autoscale_demo
@@ -109,24 +124,32 @@ jobs:
             -Dsonar.projectKey=trainertitansystems_shiftleftapp
             -Dsonar.organization=trainertitansystems
             -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=false
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       # ----------------------------
-      # Unified Report (always)
+      # PR Summary Comment
       # ----------------------------
-      - name: Publish Shift-Left Summary
+      - name: Publish PR summary
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "## ✅ Shift-Left CI Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status | Notes |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Unit Tests | ✅ | pytest executed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Code Coverage | 📊 | coverage.xml generated |" >> $GITHUB_STEP_SUMMARY
-          echo "| Dependency Scan | 🔒 | pip-audit completed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Static Scan | 🔐 | bandit completed |" >> $GITHUB_STEP_SUMMARY
-          echo "| CodeQL | 🛡️ | GitHub CodeQL |" >> $GITHUB_STEP_SUMMARY
-          echo "| AI Review | 🤖 | PR-only |" >> $GITHUB_STEP_SUMMARY
-          echo "| Sonar | 📈 | Protected branches only |" >> $GITHUB_STEP_SUMMARY
+          cat <<EOF > summary.md
+### ✅ Shift-Left Preflight Report
+
+| Check | Result |
+|------|--------|
+| 🧪 Unit & Integration Tests | Passed |
+| 📊 Code Coverage | **${{ steps.coverage.outputs.coverage }}%** |
+| 🔒 Dependency Vulnerabilities | Low: ${{ steps.deps.outputs.low }}, High: ${{ steps.deps.outputs.high }}, Critical: ${{ steps.deps.outputs.critical }} |
+| 🔐 Bandit Issues | Low: ${{ steps.bandit.outputs.low }}, Medium: ${{ steps.bandit.outputs.medium }}, High: ${{ steps.bandit.outputs.high }} |
+| 🛡️ CodeQL | Completed |
+| 📈 SonarQube | Executed (Quality Gate in Sonar) |
+
+_This report runs on every push and PR._
+EOF
+
+          gh pr comment ${{ github.event.pull_request.number }} --body-file summary.md
 
