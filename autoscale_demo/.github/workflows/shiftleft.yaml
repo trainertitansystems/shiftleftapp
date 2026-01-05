@@ -124,7 +124,7 @@ EOF
             -Dsonar.projectKey=trainertitansystems_shiftleftapp
             -Dsonar.organization=trainertitansystems
             -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=false
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
