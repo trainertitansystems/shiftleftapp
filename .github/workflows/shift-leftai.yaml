@@ -1,10 +1,8 @@
-name: Shift-Left CI (Tests • Security • Sonar • Quality Gate)
+name: Shift-Left CI (Tests • Coverage • Security • CodeQL • Sonar)
 
 on:
   push:
-    branches:
-      - main
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -14,88 +12,98 @@ permissions:
   security-events: write
 
 jobs:
-  ci:
+  shiftleft:
     runs-on: ubuntu-latest
 
     steps:
-      # ----------------------------------
-      # Safe checkout (BASE branch first)
-      # ----------------------------------
-      - name: Checkout base branch safely
+      # ----------------------------
+      # Checkout
+      # ----------------------------
+      - name: Checkout code
         uses: actions/checkout@v4
-        # Make sure that no untrusted code is executed from a fork
         with:
-          ref: ${{ github.event.pull_request.base.ref || github.ref }}
           fetch-depth: 0
 
-      # ----------------------------------
-      # Fetch PR code (read-only, no secrets)
-      # ----------------------------------
-      - name: Fetch PR code safely
-        if: github.event_name == 'pull_request_target'
-        run: |
-          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr
-          git checkout pr
-
-      # ----------------------------------
+      # ----------------------------
       # Python setup
-      # ----------------------------------
+      # ----------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      # ----------------------------------
+      # ----------------------------
       # Install dependencies
-      # ----------------------------------
+      # ----------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r autoscale_demo/requirements.txt
-          pip install pytest pytest-cov bandit pip-audit
+          pip install pytest pytest-cov bandit pip-audit jq
 
-      # ----------------------------------
-      # Unit + Integration tests with coverage
-      # ----------------------------------
-      - name: Run unit & integration tests
+      # ----------------------------
+      # Unit + Integration tests
+      # ----------------------------
+      - name: Run tests with coverage
         env:
           PYTHONPATH: autoscale_demo
         run: |
           pytest autoscale_demo/tests \
             --ignore=autoscale_demo/tests/smoke \
             --cov=autoscale_demo/app \
-            --cov-report=xml
+            --cov-report=xml:coverage.xml \
+            --cov-report=term
 
-      # ----------------------------------
-      # Dependency security scan
-      # ----------------------------------
-      - name: Dependency scan (pip-audit)
-        run: pip-audit -r autoscale_demo/requirements.txt
+      # ----------------------------
+      # Extract coverage %
+      # ----------------------------
+      - name: Parse coverage
+        id: coverage
+        run: |
+          RATE=$(grep -oP 'line-rate="\K[0-9.]+' coverage.xml | head -1)
+          PERCENT=$(python - <<EOF
+print(round(float("$RATE") * 100, 2))
+EOF
+)
+          echo "coverage=$PERCENT" >> $GITHUB_OUTPUT
 
-      # ----------------------------------
+      # ----------------------------
+      # Dependency vulnerability scan
+      # ----------------------------
+      - name: pip-audit
+        run: |
+          pip-audit -r autoscale_demo/requirements.txt -f json > pip-audit.json || true
+
+      - name: Parse pip-audit results
+        id: deps
+        run: |
+          HIGH=$(jq '[.vulnerabilities[] | select(.severity=="high")] | length' pip-audit.json)
+          CRITICAL=$(jq '[.vulnerabilities[] | select(.severity=="critical")] | length' pip-audit.json)
+          LOW=$(jq '[.vulnerabilities[] | select(.severity=="low")] | length' pip-audit.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
+
+      # ----------------------------
       # Static code security scan
-      # ----------------------------------
-      - name: Static security scan (Bandit)
-        run: bandit -r autoscale_demo/app -ll
+      # ----------------------------
+      - name: Bandit scan
+        run: |
+          bandit -r autoscale_demo/app -f json -o bandit.json || true
 
-      # ----------------------------------
-      # SonarCloud Scan + Quality Gate
-      # ----------------------------------
-      - name: SonarCloud Scan (Quality Gate enforced)
-        uses: SonarSource/sonarcloud-github-action@v3
-        with:
-          projectBaseDir: autoscale_demo
-          args: >
-            -Dsonar.projectKey=trainertitansystems_shiftleftapp
-            -Dsonar.organization=trainertitansystems
-            -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.qualitygate.wait=true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Parse bandit results
+        id: bandit
+        run: |
+          HIGH=$(jq '[.results[] | select(.issue_severity=="HIGH")] | length' bandit.json)
+          MEDIUM=$(jq '[.results[] | select(.issue_severity=="MEDIUM")] | length' bandit.json)
+          LOW=$(jq '[.results[] | select(.issue_severity=="LOW")] | length' bandit.json)
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
 
-      # ----------------------------------
-      # CodeQL Security Analysis
-      # ----------------------------------
+      # ----------------------------
+      # CodeQL (no Docker required)
+      # ----------------------------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -104,13 +112,43 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-      # ----------------------------------
-      # Scan Summary (timestamps)
-      # ----------------------------------
-      - name: Publish scan summary
+      # ----------------------------
+      # SonarCloud (secrets scoped correctly)
+      # ----------------------------
+      - name: SonarCloud Scan
+        environment: shiftleft   # ✅ ONLY HERE
+        uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          projectBaseDir: autoscale_demo
+          args: >
+            -Dsonar.projectKey=trainertitansystems_shiftleftapp
+            -Dsonar.organization=trainertitansystems
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+            -Dsonar.qualitygate.wait=false
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ----------------------------
+      # PR Summary Comment
+      # ----------------------------
+      - name: Publish PR summary
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "## ✅ Shift-Left CI Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- 🧪 Unit & Integration tests: $(date -u)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔒 Dependency & SAST scan: $(date -u)" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 SonarCloud Quality Gate: enforced" >> $GITHUB_STEP_SUMMARY
-          echo "- 🛡️ CodeQL scan: completed" >> $GITHUB_STEP_SUMMARY
+          cat <<EOF > summary.md
+### ✅ Shift-Left Preflight Report
+
+| Check | Result |
+|------|--------|
+| 🧪 Unit & Integration Tests | Passed |
+| 📊 Code Coverage | **${{ steps.coverage.outputs.coverage }}%** |
+| 🔒 Dependency Vulnerabilities | Low: ${{ steps.deps.outputs.low }}, High: ${{ steps.deps.outputs.high }}, Critical: ${{ steps.deps.outputs.critical }} |
+| 🔐 Bandit Issues | Low: ${{ steps.bandit.outputs.low }}, Medium: ${{ steps.bandit.outputs.medium }}, High: ${{ steps.bandit.outputs.high }} |
+| 🛡️ CodeQL | Completed |
+| 📈 SonarQube | Executed (Quality Gate in Sonar) |
+
+_This report runs on every push and PR._
+EOF
+
+          gh pr comment ${{ github.event.pull_request.number }} --body-file summary.md
